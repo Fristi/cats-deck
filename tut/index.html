@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Slides</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif', 'Helvetica'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz', 'Gill Sans';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono', 'Consolas', 'Courier New'; }
+      img { max-width: 500px; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+
+<h1>cats</h1>
+
+Mark de Jong
+
+---
+
+# whoami?
+
+<img src="http://vectos.net/img/logo.png" align="right" />
+
+## Mark de Jong
+- Freelance software consultant
+- Functional programming enthusiast
+
+### Website
+[http://vectos.net](http://vectos.net)
+
+---
+
+Agenda
+
+- Anatomy of a Type Class
+- Basic type classes
+- Type classes which describe effects
+- Data types inside cats
+
+
+---
+
+# Anatomy of a Type Class - definition
+
+```scala mdoc
+// Define a very simple JSON AST
+sealed trait Json
+case class JsObject(get: Map[String, Json]) extends Json
+case class JsString(get: String) extends Json
+case class JsNumber(get: Double) extends Json
+case object JsNull extends Json
+
+// The "serialize to JSON" behaviour is encoded in this trait
+trait JsonWriter[A] {
+  def write(value: A): Json
+}
+```
+
+---
+
+# Anatomy of a Type Class - instances
+
+```scala mdoc
+case class Person(name: String, email: String)
+
+object JsonWriterInstances {
+  implicit val stringWriter: JsonWriter[String] =
+    new JsonWriter[String] {
+      def write(value: String): Json =
+        JsString(value)
+    }
+
+  implicit val personWriter: JsonWriter[Person] =
+    new JsonWriter[Person] {
+      def write(value: Person): Json =
+        JsObject(Map(
+          "name" -> JsString(value.name),
+          "email" -> JsString(value.email)
+        ))
+    }
+}
+```
+
+---
+
+# Anatomy of a Type Class - use
+
+```scala mdoc
+object Json {
+  def toJson[A](value: A)(implicit w: JsonWriter[A]): Json =
+    w.write(value)
+}
+
+import JsonWriterInstances._
+
+Json.toJson(Person("Dave", "dave@example.com"))
+```
+
+---
+
+# Anatomy of a Type Class - implicitly
+
+Debug implicits by using `implicitly`
+
+```scala mdoc
+import JsonWriterInstances._
+
+implicitly[JsonWriter[String]]
+```
+```scala mdoc:fail
+implicitly[JsonWriter[Int]]
+```
+
+---
+
+# Anatomy of a Type Class - apply syntax
+
+Most type classes in cats have defined a specialized apply like this
+
+```scala
+def apply[A](implicit ev: Show[A]): Show[A] = ev
+```
+
+Such that you can write:
+
+```scala
+def someFunction[A : Show](value: A): String =
+  Show[A].show(value)
+```
+
+---
+
+# Some imports!
+
+```scala mdoc
+import cats._
+import cats.implicits._
+import cats.data._
+```
+
+---
+
+
+# Basic type classes - Show
+
+A type class for printing strings. `toString` can be dangerous to use everywhere! You might leak data
+
+```scala
+trait Show[A] {
+  def show(value: A): String
+}
+```
+
+```scala mdoc
+Show[Int].show(1)
+Show[Double].show(123.0333d)
+```
+
+---
+
+# Basic type classes - Eq
+
+A type class for equality. Better alternative to `==`, note there is `===` syntax available via
+`import cats.implicits._`
+
+```scala
+trait Eq[A] {
+  def eq(x: A, y: A): Boolean
+}
+```
+
+```scala mdoc
+Eq[Int].eqv(1, 1)
+"abc" === "dec"
+"abc" =!= "abcc"
+```
+
+---
+
+# Basic type classes - Order
+
+A type class for order, liking `Ordering`.
+
+```scala
+trait Order[A] extends Eq[A] {
+  def compare(x: A, y: A): Int
+  def eqv(x: A, y: A): Boolean = compare(x, y) == 0
+}
+```
+
+```scala mdoc
+import scala.concurrent.duration._
+
+Order[Int].compare(1, 2)
+Order[Int].compare(2, 1)
+Order[Int].compare(1, 1)
+
+// syntax from cats.implicits
+1.second > 2.seconds
+1.days < 2.days
+```
+
+---
+
+# Basic type classes - Semigroup
+
+A type class for adding things together
+
+```scala
+trait Semigroup[A] {
+  def combine(x: A, y: A): A
+}
+```
+
+```scala mdoc
+// syntax for `combine`
+1.second |+| 2.seconds
+
+"abc" |+| "def"
+
+1 |+| 3
+
+List(1, 2, 3) |+| List(4, 5, 6)
+```
+
+---
+
+# Basic type classes - Monoid
+
+A semigroup extended with a identity element
+
+```scala
+trait Monoid[A] extends Semigroup[A] {
+  val empty: A
+}
+```
+
+```scala mdoc
+// syntax for `combine`
+1.second |+| Monoid[FiniteDuration].empty
+
+"abc" |+| Monoid[String].empty
+
+1 |+| Monoid[Int].empty
+
+List(1, 2, 3) |+| Monoid[List[Int]].empty
+```
+
+---
+
+# Basic type classes - Semigroup/Monoid
+
+Semigroup instances are also defined for other types.
+Like `Option`, `Future`, `ConnectionIO`, `DBIO`, `ZIO`, `ZManaged` etc
+
+```scala
+implicit def optionSemigroup[A : Semigroup]: Semigroup[Option[A]] = new Semigroup[Option[A]] {
+  def combine(x: Option[A], y: Option[A]): Option[A] =
+    for {
+      a <- x
+      b <- y
+    } yield Semigroup[A].combine(a, b)
+}
+```
+
+```scala mdoc
+Option(1) |+| Option(3)
+```
+
+---
+
+# Data types inside cats
+
+There are a few data types in cats, like in the std library of scala:
+
+- `NonEmptyList` - list which cannot be empty
+- `NonEmptySet` - set which cannot be empty
+- `NonEmptyMap` - map which cannot be empty
+- `Validated` - variant of either where, the left side needs to ba `Semigroup`
+- `Kleisli` - a effectful function `A => F[B]` also known as `Reader`
+- `State` - model stateful computations `S => (S, A)`
+- `Writer` - log computations `(L, A)` where `L` is a `Monoid`
+
+---
+
+# NonEmptyXXX examples
+
+
+
+---
+
+# Fin
+
+### Slides
+[http://fristi.github.com/cats-deck](http://fristi.github.com/cats-deck)
+
+### Libraries mentioned
+- cats at [https://github.com/typelevel/cats](https://github.com/typelevel/cats)
+
+ </textarea>
+    <script src="remark-latest.min.js"></script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+  </body>
+</html>
