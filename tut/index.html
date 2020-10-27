@@ -141,6 +141,21 @@ def someFunction[A : Show](value: A): String =
 
 ---
 
+# Anatomy of a Type Class - summary
+
+Can be defined at:
+
+- Companion object of the type class
+- Companion object of the type you want to summon it for
+- Objects/trait and you have to explicitly import those
+
+Debug it with:
+- implicitly
+- cmd + shift + p in IntelliJ IDEA
+
+
+---
+
 # Some imports!
 
 ```scala mdoc
@@ -208,7 +223,7 @@ Order[Int].compare(1, 1)
 
 // syntax from cats.implicits
 1.second > 2.seconds
-1.days < 2.days
+1.days <= 2.days
 ```
 
 ---
@@ -279,6 +294,23 @@ Option(1) |+| Option(3)
 ```
 
 ---
+
+# Basic type classes - Functor
+
+```scala
+trait Functor[F[_]] {
+  def map[A, B](fa: F[A])(f: A => B): F[B]
+}
+```
+
+```scala mdoc
+Functor[Option].map(Some(2))(_ * 2)
+Functor[List].map(List(1, 2 , 3))(_ * 2)
+```
+
+
+---
+
 
 # Data types inside cats
 
