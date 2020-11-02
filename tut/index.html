@@ -24,6 +24,8 @@ class: center, middle
 
 <h1>cats</h1>
 
+![](/cats.png)
+
 Mark de Jong
 
 ---
@@ -41,7 +43,7 @@ Mark de Jong
 
 ---
 
-Agenda
+# Agenda
 
 - Anatomy of a Type Class
 - Basic type classes
@@ -51,7 +53,17 @@ Agenda
 
 ---
 
+# Anatomy of a Type Class - what is it?
+
+- Add behavior without extending (Open-Closed principle)
+- Write polymorphic methods with constraints (type class)
+- Create type class instance with constraints
+
+---
+
 # Anatomy of a Type Class - definition
+
+A trait/interface which describes some behavior for a type
 
 ```scala mdoc
 // Define a very simple JSON AST
@@ -62,6 +74,7 @@ case class JsNumber(get: Double) extends Json
 case object JsNull extends Json
 
 // The "serialize to JSON" behaviour is encoded in this trait
+// This is our type class
 trait JsonWriter[A] {
   def write(value: A): Json
 }
@@ -96,6 +109,8 @@ object JsonWriterInstances {
 
 # Anatomy of a Type Class - use
 
+We can write polymorphic methods with constraints
+
 ```scala mdoc
 object Json {
   def toJson[A](value: A)(implicit w: JsonWriter[A]): Json =
@@ -105,6 +120,41 @@ object Json {
 import JsonWriterInstances._
 
 Json.toJson(Person("Dave", "dave@example.com"))
+```
+
+---
+
+# Anatomy of a Type Class - apply syntax
+
+Most type classes in cats have defined a specialized apply like this
+
+```scala mdoc
+object JsonWriter {
+  def apply[A](implicit ev: JsonWriter[A]): JsonWriter[A] = ev
+}
+
+```
+
+Remember `def toJson[A](value: A)(implicit w: JsonWriter[A]): Json` ? Also using that constraint.
+
+---
+
+# Anatomy of a Type Class - instances with constraints
+
+Create type class instance with constraints
+
+```scala mdoc
+implicit def optionWriter[A : JsonWriter]: JsonWriter[Option[A]] =
+  new JsonWriter[Option[A]] {
+    def write(value: Option[A]): Json =
+      value match {
+        case Some(v) => JsonWriter[A].write(v)
+        case None => JsNull
+      }
+  }
+
+Json.toJson(Option("Test"))
+Json.toJson(Option.empty[String])
 ```
 
 ---
@@ -124,23 +174,6 @@ implicitly[JsonWriter[Int]]
 
 ---
 
-# Anatomy of a Type Class - apply syntax
-
-Most type classes in cats have defined a specialized apply like this
-
-```scala
-def apply[A](implicit ev: Show[A]): Show[A] = ev
-```
-
-Such that you can write:
-
-```scala
-def someFunction[A : Show](value: A): String =
-  Show[A].show(value)
-```
-
----
-
 # Anatomy of a Type Class - summary
 
 Can be defined at:
@@ -156,11 +189,18 @@ Debug it with:
 
 ---
 
-# Some imports!
+# Let's use cats
+
+Get started usually with some imports!
 
 ```scala mdoc
+// Contains the basic type
 import cats._
+
+// Contains the type class instances and syntax
 import cats.implicits._
+
+// Contains data type like NonEmptyList, Kleisli, etc
 import cats.data._
 ```
 
@@ -169,7 +209,8 @@ import cats.data._
 
 # Basic type classes - Show
 
-A type class for printing strings. `toString` can be dangerous to use everywhere! You might leak data
+A type class for printing strings. `toString` can be dangerous to use everywhere! You might leak data.
+Also this gives us `Show` instances for _refined_ types.
 
 ```scala
 trait Show[A] {
@@ -295,7 +336,23 @@ Option(1) |+| Option(3)
 
 ---
 
+# Basic type classes - Hierarchy
+
+Typeclasses extend from each other like seen with
+- Eq and Order
+- Semigroup and Monoid.
+
+For effects this is described in the hierarchy like seen here.
+
+![](/hierarchy.png)
+
+---
+
 # Basic type classes - Functor
+
+Transform a effect
+
+![](/functor.svg)
 
 ```scala
 trait Functor[F[_]] {
@@ -308,6 +365,87 @@ Functor[Option].map(Some(2))(_ * 2)
 Functor[List].map(List(1, 2 , 3))(_ * 2)
 ```
 
+---
+
+# Basic type classes - Apply
+
+To run computations in parallel (not dependant on eachother)
+
+```scala
+trait Apply[F[_]] extends Functor[F] {
+  def ap[A, B](ff: F[A => B])(fa: F[A]): F[B]
+}
+```
+
+```scala mdoc
+val someF: Option[Int => Int] = Some(_ * 2)
+
+Apply[Option].ap(someF)(Some(2))
+```
+
+---
+# Basic type classes - Applicative
+
+Extends `Apply` to lift a value of context `F[_]`
+
+```scala
+trait Applicative[F[_]] extends Apply[F] {
+  def pure[A](a: A): F[A]
+
+  final def unit: F[Unit] = pure(())
+}
+```
+
+```scala mdoc
+val optTwo = Applicative[Option].pure(2)
+val optThree = Applicative[Option].pure(3)
+
+(optTwo, optThree).mapN { _ * _ }
+(optTwo, optThree).tupled
+```
+
+---
+# Basic type classes - Applicative
+
+Instances for
+
+- Base types: Option, Either, List, etc
+- Asynchronous types: Future, ZIO, etc
+- Cats types: Validated
+- Doobie: Get (decoder), ConnectionIO
+- Circe: Decoder
+
+---
+# Basic type classes - Monad
+
+To run computations in sequence (when there is dependencies)
+
+![](/option-monad.svg)
+
+```scala
+trait Monad[F[_]] extends Applicative[F] {
+  def flatMap[A, B](fa: F[A])(f: A => F[B]): F[B]
+}
+```
+
+```scala mdoc
+for {
+  a <- Option(3)
+  b <- Option.empty[Int]
+} yield a + b
+```
+
+---
+
+# Basic type classes - Monad
+
+Instances fors
+
+- Base types: Option, Either, List, etc
+- Asynchronous types: Future, ZIO, etc
+- Cats types: Writer, Reader, State, etc
+- Doobie: ConnectionIO
+- Circe: Decoder
 
 ---
 
@@ -320,19 +458,173 @@ There are a few data types in cats, like in the std library of scala:
 - `NonEmptySet` - set which cannot be empty
 - `NonEmptyMap` - map which cannot be empty
 - `Validated` - variant of either where, the left side needs to ba `Semigroup`
-- `Kleisli` - a effectful function `A => F[B]` also known as `Reader`
-- `State` - model stateful computations `S => (S, A)`
-- `Writer` - log computations `(L, A)` where `L` is a `Monoid`
+- `Kleisli` or `ReaderT` - a effectful function `A => F[B]`
+- `StateT` - model stateful computations `S => (S, A)`
+- `WriterT` - log computations `(L, A)` where `L` is a `Monoid`
 
 ---
 
-# NonEmptyXXX examples
+# NonEmptyList example
 
+NonEmptyXXX variants are non empty
 
+```scala mdoc
+// construct a NonEmptyList
+val nel = NonEmptyList.of("123", "abc")
+
+// safe head operation
+nel.head
+
+// from a dynamic list, this yields an `Option`
+NonEmptyList.fromList(List.empty[String])
+```
+
+---
+
+# Validated example
+
+Parallel accumulation of errors using `Applicative`
+
+```scala mdoc
+case class RegistrationData(username: String, age: Int)
+
+sealed trait ValidationError
+case object UsernameHasSpecialCharacters extends ValidationError
+case object AgeIsInvalid extends ValidationError
+
+// ValidatedNel[ValidationError, A] is an alias
+// for `Validated[NonEmptyList[ValidationError], A]`
+type ValidationResult[A] = ValidatedNel[ValidationError, A]
+
+def validateUserName(userName: String): ValidationResult[String] =
+  if (userName.matches("^[a-zA-Z0-9]+$")) userName.validNel else UsernameHasSpecialCharacters.invalidNel
+
+def validateAge(age: Int): ValidationResult[Int] =
+  if (age >= 18 && age <= 75) age.validNel else AgeIsInvalid.invalidNel
+
+(validateUserName("#"), validateAge(3)).mapN(RegistrationData)
+```
+
+---
+
+# Kleisli
+
+A `Kleisli` represents a function `A => F[B]`.
+
+Where `A` is the environment. This is seen in ZIO as well, but can also serve other applications.
+Like in http4s or seen here:
+
+```scala mdoc
+def parse: Kleisli[Option,String,Int] =
+  Kleisli((s: String) => if (s.matches("-?[0-9]+")) Some(s.toInt) else None)
+
+def reciprocal: Kleisli[Option,Int,Double] =
+  Kleisli((i: Int) => if (i != 0) Some(1.0 / i) else None)
+
+def parseAndReciprocal: Kleisli[Option,String,Double] =
+  reciprocal.compose(parse)
+
+parseAndReciprocal.run("2")
+```
+
+---
+
+# The Identity Monad
+
+The identity monad is defined as:
+
+```scala
+type Id[A] = A
+
+val idMonad = new Monad[Id] {
+  def pure[A](x: A): Id[A] = x
+  def flatMap[A, B](fa: Id[A])(f: A => Id[B]): Id[B] = f(fa)
+}
+```
+
+---
+
+# ReaderT and Reader
+
+A `ReaderT` is an alias
+
+```scala
+type ReaderT[F[_], A, B] = Kleisli[F, A, B]
+```
+
+And `Reader` is a `ReaderT`, omitting the effectul part.
+
+```scala
+type Reader[A, B] = ReaderT[Id, A, B]
+```
+
+`ReaderT` is being used in ZIO for the environment.
+
+---
+
+# StateT
+
+```scala
+final case class StateT[F[_], S, A](run: S => F[(S, A)])
+```
+
+It's basically a `S => (S, A)`
+
+- Where `S` is the state and `A` the return type.
+- This can be used to model purely stateful programs without using `var`.
+- Examples are interpreters or in-memory implementations of repositories.
+- `StateT` has a `Monad` and `Semigroup` instances as well, and an alias `State` which uses `Id`
+
+---
+
+# State - sample
+
+```scala
+final case class Data(
+  depots: List[Depot],
+  couriers: List[Courier]
+)
+object Database {
+  def all[A](at: Lens[Data, List[A]]): State[Data, List[A]] =
+    State.get.map(at.get)
+  def find[A, B](at: Lens[Data, List[A]])(f: A => Boolean): State[Data, Option[A]] =
+    all(at).map(_.find(f))
+}
+
+def findByCode(depotCode: DepotCode): State[Data, Option[Depot]] =
+  Database.find(Data.depots)(_.depotCode === depotCode)
+```
+
+---
+
+# WriterT
+
+```scala
+final case class WriterT[F[_], L, A](run: F[(L, A)])
+```
+
+It's basically a `(L, A)`
+
+- Where `L` is the log type and `A` the return type.
+- The `L` is constrained to have a `Semigroup` instance.
+- Applications are to traverse trees of data and capture data along the way
+- Or log data while running effects.
+- `WriterT` has a `Monad` and `Semigroup` instances as well, and an alias `Writer` which uses `Id`
+
+---
+
+# There is more, read the book and learn!
+
+![](/book.png)
+
+[https://www.scalawithcats.com/](https://www.scalawithcats.com/)
 
 ---
 
 # Fin
+
+### Credits
+- Illustrations from [scala with cats](https://www.scalawithcats.com/)
 
 ### Slides
 [http://fristi.github.com/cats-deck](http://fristi.github.com/cats-deck)
