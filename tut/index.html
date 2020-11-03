@@ -24,7 +24,7 @@ class: center, middle
 
 <h1>cats</h1>
 
-![](cats.png)
+![](./cats.png)
 
 Mark de Jong
 
@@ -53,11 +53,13 @@ Mark de Jong
 
 ---
 
-# Anatomy of a Type Class - what is it?
+# Anatomy of a Type Class - why ?
 
-- Add behavior without extending (Open-Closed principle)
-- Write polymorphic methods with constraints (type class)
-- Create type class instance with constraints
+- In functional programming we divide data and behavior
+- Common behaviour is encoded in a type class
+- Add behavior without extending (ad-hoc polymorphism/Open-Closed principle)
+- Write polymorphic methods with type class constraints
+- Create type class instances with type class constraints
 
 ---
 
@@ -66,18 +68,18 @@ Mark de Jong
 A trait/interface which describes some behavior for a type
 
 ```scala mdoc
+// The "serialize to JSON" behaviour is encoded in this trait
+// This is our type class
+trait JsonWriter[A] {
+  def write(value: A): Json
+}
+
 // Define a very simple JSON AST
 sealed trait Json
 case class JsObject(get: Map[String, Json]) extends Json
 case class JsString(get: String) extends Json
 case class JsNumber(get: Double) extends Json
 case object JsNull extends Json
-
-// The "serialize to JSON" behaviour is encoded in this trait
-// This is our type class
-trait JsonWriter[A] {
-  def write(value: A): Json
-}
 ```
 
 ---
@@ -315,6 +317,50 @@ List(1, 2, 3) |+| Monoid[List[Int]].empty
 
 ---
 
+# Semigroup (combine data)
+
+```scala mdoc
+import java.util.Currency
+
+case class Money(repr: Map[Currency, Double])
+
+object Money {
+  def single(amount: Double, currency: Currency): Money =
+    Money(Map(currency -> amount))
+
+  implicit val semigroup: Semigroup[Money] = new Semigroup[Money] {
+    def combine(x: Money, y: Money): Money = Money(x.repr |+| y.repr)
+  }
+}
+
+def usd = Currency.getInstance("USD")
+
+Money.single(2d, usd) |+| Money.single(4d, usd)
+
+```
+
+---
+
+# Semigroup (combine effects)
+
+```scala mdoc
+trait Mailer[F[_]] { self =>
+  def mail(msg: String): F[Unit]
+
+  def and(other: Mailer[F])(implicit F: Applicative[F]): Mailer[F] = new Mailer[F] {
+    def mail(msg: String): F[Unit] = self.mail(msg) *> other.mail(msg)
+  }
+}
+
+object Mailer {
+  implicit def semigroup[F[_] : Applicative]: Semigroup[Mailer[F]] = new Semigroup[Mailer[F]] {
+    def combine(x: Mailer[F], y: Mailer[F]): Mailer[F] = x and y
+  }
+}
+```
+
+---
+
 # Basic type classes - Semigroup/Monoid
 
 Semigroup instances are also defined for other types.
@@ -331,7 +377,7 @@ implicit def optionSemigroup[A : Semigroup]: Semigroup[Option[A]] = new Semigrou
 ```
 
 ```scala mdoc
-Option(1) |+| Option(3)
+Option(Money.single(2d, usd)) |+| Option(Money.single(2d, usd))
 ```
 
 ---
@@ -344,7 +390,7 @@ Typeclasses extend from each other like seen with
 
 For effects this is described in the hierarchy like seen here.
 
-![](hierarchy.png)
+![](./hierarchy.png)
 
 ---
 
@@ -352,7 +398,7 @@ For effects this is described in the hierarchy like seen here.
 
 Transform a effect
 
-![](functor.svg)
+![](./functor.svg)
 
 ```scala
 trait Functor[F[_]] {
@@ -420,7 +466,7 @@ Instances for
 
 To run computations in sequence (when there is dependencies)
 
-![](option-monad.svg)
+![](./option-monad.svg)
 
 ```scala
 trait Monad[F[_]] extends Applicative[F] {
@@ -615,7 +661,7 @@ It's basically a `(L, A)`
 
 # There is more, read the book and learn!
 
-![](book.png)
+![](./book.png)
 
 [https://www.scalawithcats.com/](https://www.scalawithcats.com/)
 

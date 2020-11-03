@@ -24,7 +24,7 @@ class: center, middle
 
 <h1>cats</h1>
 
-![](/cats.png)
+![](./cats.png)
 
 Mark de Jong
 
@@ -53,11 +53,13 @@ Mark de Jong
 
 ---
 
-# Anatomy of a Type Class - what is it?
+# Anatomy of a Type Class - why ?
 
-- Add behavior without extending (Open-Closed principle)
-- Write polymorphic methods with constraints (type class)
-- Create type class instance with constraints
+- In functional programming we divide data and behavior
+- Common behaviour is encoded in a type class
+- Add behavior without extending (ad-hoc polymorphism/Open-Closed principle)
+- Write polymorphic methods with type class constraints
+- Create type class instances with type class constraints
 
 ---
 
@@ -66,18 +68,18 @@ Mark de Jong
 A trait/interface which describes some behavior for a type
 
 ```scala
+// The "serialize to JSON" behaviour is encoded in this trait
+// This is our type class
+trait JsonWriter[A] {
+  def write(value: A): Json
+}
+
 // Define a very simple JSON AST
 sealed trait Json
 case class JsObject(get: Map[String, Json]) extends Json
 case class JsString(get: String) extends Json
 case class JsNumber(get: Double) extends Json
 case object JsNull extends Json
-
-// The "serialize to JSON" behaviour is encoded in this trait
-// This is our type class
-trait JsonWriter[A] {
-  def write(value: A): Json
-}
 ```
 
 ---
@@ -174,7 +176,7 @@ Debug implicits by using `implicitly`
 import JsonWriterInstances._
 
 implicitly[JsonWriter[String]]
-// res3: JsonWriter[String] = repl.MdocSession$App$JsonWriterInstances$$anon$1@5c084e64
+// res3: JsonWriter[String] = repl.MdocSession$App$JsonWriterInstances$$anon$1@40f63848
 ```
 ```scala
 implicitly[JsonWriter[Int]]
@@ -344,6 +346,50 @@ List(1, 2, 3) |+| Monoid[List[Int]].empty
 
 ---
 
+# Semigroup (combine data)
+
+```scala
+import java.util.Currency
+
+case class Money(repr: Map[Currency, Double])
+
+object Money {
+  def single(amount: Double, currency: Currency): Money =
+    Money(Map(currency -> amount))
+
+  implicit val semigroup: Semigroup[Money] = new Semigroup[Money] {
+    def combine(x: Money, y: Money): Money = Money(x.repr |+| y.repr)
+  }
+}
+
+def usd = Currency.getInstance("USD")
+
+Money.single(2d, usd) |+| Money.single(4d, usd)
+// res23: Money = Money(repr = Map(USD -> 6.0))
+```
+
+---
+
+# Semigroup (combine effects)
+
+```scala
+trait Mailer[F[_]] { self =>
+  def mail(msg: String): F[Unit]
+
+  def and(other: Mailer[F])(implicit F: Applicative[F]): Mailer[F] = new Mailer[F] {
+    def mail(msg: String): F[Unit] = self.mail(msg) *> other.mail(msg)
+  }
+}
+
+object Mailer {
+  implicit def semigroup[F[_] : Applicative]: Semigroup[Mailer[F]] = new Semigroup[Mailer[F]] {
+    def combine(x: Mailer[F], y: Mailer[F]): Mailer[F] = x and y
+  }
+}
+```
+
+---
+
 # Basic type classes - Semigroup/Monoid
 
 Semigroup instances are also defined for other types.
@@ -360,8 +406,8 @@ implicit def optionSemigroup[A : Semigroup]: Semigroup[Option[A]] = new Semigrou
 ```
 
 ```scala
-Option(1) |+| Option(3)
-// res23: Option[Int] = Some(value = 4)
+Option(Money.single(2d, usd)) |+| Option(Money.single(2d, usd))
+// res24: Option[Money] = Some(value = Money(repr = Map(USD -> 4.0)))
 ```
 
 ---
@@ -374,7 +420,7 @@ Typeclasses extend from each other like seen with
 
 For effects this is described in the hierarchy like seen here.
 
-![](/hierarchy.png)
+![](./hierarchy.png)
 
 ---
 
@@ -382,7 +428,7 @@ For effects this is described in the hierarchy like seen here.
 
 Transform a effect
 
-![](/functor.svg)
+![](./functor.svg)
 
 ```scala
 trait Functor[F[_]] {
@@ -392,9 +438,9 @@ trait Functor[F[_]] {
 
 ```scala
 Functor[Option].map(Some(2))(_ * 2)
-// res24: Option[Int] = Some(value = 4)
+// res25: Option[Int] = Some(value = 4)
 Functor[List].map(List(1, 2 , 3))(_ * 2)
-// res25: List[Int] = List(2, 4, 6)
+// res26: List[Int] = List(2, 4, 6)
 ```
 
 ---
@@ -414,7 +460,7 @@ val someF: Option[Int => Int] = Some(_ * 2)
 // someF: Option[Int => Int] = Some(value = <function1>)
 
 Apply[Option].ap(someF)(Some(2))
-// res26: Option[Int] = Some(value = 4)
+// res27: Option[Int] = Some(value = 4)
 ```
 
 ---
@@ -437,9 +483,9 @@ val optThree = Applicative[Option].pure(3)
 // optThree: Option[Int] = Some(value = 3)
 
 (optTwo, optThree).mapN { _ * _ }
-// res27: Option[Int] = Some(value = 6)
+// res28: Option[Int] = Some(value = 6)
 (optTwo, optThree).tupled
-// res28: Option[(Int, Int)] = Some(value = (2, 3))
+// res29: Option[(Int, Int)] = Some(value = (2, 3))
 ```
 
 ---
@@ -458,7 +504,7 @@ Instances for
 
 To run computations in sequence (when there is dependencies)
 
-![](/option-monad.svg)
+![](./option-monad.svg)
 
 ```scala
 trait Monad[F[_]] extends Applicative[F] {
@@ -471,7 +517,7 @@ for {
   a <- Option(3)
   b <- Option.empty[Int]
 } yield a + b
-// res29: Option[Int] = None
+// res30: Option[Int] = None
 ```
 
 ---
@@ -514,11 +560,11 @@ val nel = NonEmptyList.of("123", "abc")
 
 // safe head operation
 nel.head
-// res30: String = "123"
+// res31: String = "123"
 
 // from a dynamic list, this yields an `Option`
 NonEmptyList.fromList(List.empty[String])
-// res31: Option[NonEmptyList[String]] = None
+// res32: Option[NonEmptyList[String]] = None
 ```
 
 ---
@@ -545,7 +591,7 @@ def validateAge(age: Int): ValidationResult[Int] =
   if (age >= 18 && age <= 75) age.validNel else AgeIsInvalid.invalidNel
 
 (validateUserName("#"), validateAge(3)).mapN(RegistrationData)
-// res32: ValidationResult[RegistrationData] = Invalid(
+// res33: ValidationResult[RegistrationData] = Invalid(
 //   e = NonEmptyList(
 //     head = UsernameHasSpecialCharacters,
 //     tail = List(AgeIsInvalid)
@@ -573,7 +619,7 @@ def parseAndReciprocal: Kleisli[Option,String,Double] =
   reciprocal.compose(parse)
 
 parseAndReciprocal.run("2")
-// res33: Option[Double] = Some(value = 0.5)
+// res34: Option[Double] = Some(value = 0.5)
 ```
 
 ---
@@ -664,7 +710,7 @@ It's basically a `(L, A)`
 
 # There is more, read the book and learn!
 
-![](/book.png)
+![](./book.png)
 
 [https://www.scalawithcats.com/](https://www.scalawithcats.com/)
 
