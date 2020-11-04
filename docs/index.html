@@ -55,11 +55,11 @@ Mark de Jong
 
 # Anatomy of a Type Class - why ?
 
-- In functional programming we divide data and behavior
+- In functional programming we separate data and behavior
 - Common behaviour is encoded in a type class
 - Add behavior without extending (ad-hoc polymorphism/Open-Closed principle)
 - Write polymorphic methods with type class constraints
-- Create type class instances with type class constraints
+- Create type class _instances_ with type class constraints
 
 ---
 
@@ -176,7 +176,7 @@ Debug implicits by using `implicitly`
 import JsonWriterInstances._
 
 implicitly[JsonWriter[String]]
-// res3: JsonWriter[String] = repl.MdocSession$App$JsonWriterInstances$$anon$1@40f63848
+// res3: JsonWriter[String] = repl.MdocSession$App$JsonWriterInstances$$anon$1@6ef58fe1
 ```
 ```scala
 implicitly[JsonWriter[Int]]
@@ -189,13 +189,13 @@ implicitly[JsonWriter[Int]]
 
 # Anatomy of a Type Class - summary
 
-Can be defined at:
+Instances can be defined at
 
 - Companion object of the type class
 - Companion object of the type you want to summon it for
 - Objects/trait and you have to explicitly import those
 
-Debug it with:
+Debug it with missing instances with
 - implicitly
 - cmd + shift + p in IntelliJ IDEA
 
@@ -543,6 +543,8 @@ There are a few data types in cats, like in the std library of scala:
 - `NonEmptySet` - set which cannot be empty
 - `NonEmptyMap` - map which cannot be empty
 - `Validated` - variant of either where, the left side needs to ba `Semigroup`
+- `EitherT` - a effectful version of `Either`
+- `OptionT` - a effectful version of `Option`
 - `Kleisli` or `ReaderT` - a effectful function `A => F[B]`
 - `StateT` - model stateful computations `S => (S, A)`
 - `WriterT` - log computations `(L, A)` where `L` is a `Monoid`
@@ -601,6 +603,55 @@ def validateAge(age: Int): ValidationResult[Int] =
 
 ---
 
+# EitherT
+
+`EitherT[F[_], L, R]` is just a `F[Either[L, R]]`, it's an `Either` wrapped in a monadic context.
+
+- Where `F[_]` is a `Monad`
+- Where `L` is the left side and `R` is the right side
+- `EitherT` has a `Monad` and `Semigroup` instance available
+
+```scala
+import scala.concurrent._
+import scala.concurrent.duration._
+
+implicit def ec: ExecutionContext = scala.concurrent.ExecutionContext.global
+
+def fromEitherF[L, R](either: Future[Either[L, R]]): EitherT[Future, L, R] =
+  EitherT(either)
+
+def fromOptionF[L, A](opt: Future[Option[A]], ifEmpty: => L): EitherT[Future, L, A] =
+  EitherT(opt.map(_.fold[Either[L, A]](Left(ifEmpty))(Right(_))))
+
+def programEither: EitherT[Future, String, Int] = for {
+  a <- fromEitherF(Future.successful(Right(1)))
+  b <- fromOptionF(Future.successful(Option.empty[Int]), "Oh oh")
+} yield a + b
+
+Await.ready(programEither.value, 2.seconds)
+// res34: Future[Either[String, Int]] = Future(Success(Left(Oh oh)))
+```
+
+---
+
+# OptionT
+
+`OptionT[F[_], A]` is just a `F[Option[A]]`, it's an `Option` wrapped in a monadic context.
+
+- Where `F[_]` is a `Monad`
+- `OptionT` has a `Monad` and `Semigroup` instance available
+
+```scala
+def programOpt =
+  OptionT(Future.successful(Option.empty[Int])) orElse
+  OptionT(Future.successful(Option(1)))
+
+Await.ready(programOpt.value, 2.seconds)
+// res35: Future[Option[Int]] = Future(Success(Some(1)))
+```
+
+---
+
 # Kleisli
 
 A `Kleisli` represents a function `A => F[B]`.
@@ -619,7 +670,7 @@ def parseAndReciprocal: Kleisli[Option,String,Double] =
   reciprocal.compose(parse)
 
 parseAndReciprocal.run("2")
-// res34: Option[Double] = Some(value = 0.5)
+// res36: Option[Double] = Some(value = 0.5)
 ```
 
 ---
